@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: stock-stalk-backend
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn stockstalk.wsgi:application
+    envVars:
+      - key: DJANGO_SECRET_KEY
+        generateValue: true
+      - key: DJANGO_DEBUG
+        value: False
+      - key: PYTHON_VERSION
+        value: 3.9.0
+
+  - type: web
+    name: stock-stalk-frontend
+    env: static
+    buildCommand: npm install && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          name: stock-stalk-backend
+          type: web
+          property: host
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html 

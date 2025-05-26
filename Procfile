@@ -1,0 +1,1 @@
+web: gunicorn stockstalk.wsgi:application --log-file - 
