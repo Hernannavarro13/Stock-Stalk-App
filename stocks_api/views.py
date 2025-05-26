@@ -5,9 +5,14 @@ from django.utils import timezone
 from datetime import datetime, timedelta
 from decimal import Decimal
 import yfinance as yf
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import MinMaxScaler
+from sklearn.ensemble import RandomForestRegressor
+import pandas as pd
 
-from .models import Stock, PriceHistory
-from .serializers import StockSerializer, StockDetailSerializer
+from .models import Stock, PriceHistory, Watchlist
+from .serializers import StockSerializer, StockDetailSerializer, WatchlistSerializer
 
 class StockViewSet(viewsets.ModelViewSet):
     queryset = Stock.objects.all()
@@ -154,3 +159,111 @@ class StockViewSet(viewsets.ModelViewSet):
             
         except Exception as e:
             return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    @action(detail=True, methods=['post'])
+    def predict_price(self, request, pk=None):
+        try:
+            stock = self.get_object()
+            
+            # Get historical data for the last 60 days
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=60)
+            
+            # Fetch historical data
+            history = PriceHistory.objects.filter(
+                stock=stock,
+                date__range=[start_date, end_date]
+            ).order_by('date')
+            
+            if len(history) < 30:
+                return Response(
+                    {"error": "Insufficient historical data for prediction"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Prepare data for prediction
+            df = pd.DataFrame(list(history.values()))
+            
+            # Create features
+            df['MA5'] = df['close_price'].rolling(window=5).mean()
+            df['MA20'] = df['close_price'].rolling(window=20).mean()
+            df['Volume_MA5'] = df['volume'].rolling(window=5).mean()
+            df['Price_Change'] = df['close_price'].pct_change()
+            
+            # Drop rows with NaN values
+            df = df.dropna()
+            
+            # Prepare features and target
+            features = ['open_price', 'high_price', 'low_price', 'volume', 'MA5', 'MA20', 'Volume_MA5', 'Price_Change']
+            X = df[features]
+            y = df['close_price']
+            
+            # Scale the features
+            scaler = MinMaxScaler()
+            X_scaled = scaler.fit_transform(X)
+            
+            # Split the data
+            X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+            
+            # Train the model
+            model = RandomForestRegressor(n_estimators=100, random_state=42)
+            model.fit(X_train, y_train)
+            
+            # Calculate accuracy
+            accuracy = model.score(X_test, y_test)
+            
+            # Prepare data for next day prediction
+            last_data = X_scaled[-1].reshape(1, -1)
+            predicted_price = model.predict(last_data)[0]
+            
+            # Update stock with prediction
+            stock.predicted_price = predicted_price
+            stock.prediction_date = timezone.now()
+            stock.model_accuracy = accuracy
+            stock.save()
+            
+            return Response({
+                'symbol': stock.symbol,
+                'predicted_price': predicted_price,
+                'prediction_date': stock.prediction_date,
+                'model_accuracy': accuracy
+            })
+            
+        except Exception as e:
+            return Response({"error": str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class WatchlistViewSet(viewsets.ModelViewSet):
+    serializer_class = WatchlistSerializer
+    
+    def get_queryset(self):
+        return Watchlist.objects.filter(user=self.request.user)
+    
+    @action(detail=True, methods=['post'])
+    def add_stock(self, request, pk=None):
+        watchlist = self.get_object()
+        stock_id = request.data.get('stock_id')
+        
+        try:
+            stock = Stock.objects.get(pk=stock_id)
+            watchlist.stocks.add(stock)
+            return Response({'status': 'stock added to watchlist'})
+        except Stock.DoesNotExist:
+            return Response(
+                {'error': 'Stock not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )
+    
+    @action(detail=True, methods=['post'])
+    def remove_stock(self, request, pk=None):
+        watchlist = self.get_object()
+        stock_id = request.data.get('stock_id')
+        
+        try:
+            stock = Stock.objects.get(pk=stock_id)
+            watchlist.stocks.remove(stock)
+            return Response({'status': 'stock removed from watchlist'})
+        except Stock.DoesNotExist:
+            return Response(
+                {'error': 'Stock not found'},
+                status=status.HTTP_404_NOT_FOUND
+            )

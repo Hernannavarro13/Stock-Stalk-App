@@ -1,33 +1,27 @@
-const API_BASE_URL = 'http://localhost:8000/api';
+const API_BASE_URL = '/api';
 
 export const searchStocks = async (query) => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/stocks/search/?q=${encodeURIComponent(query)}`);
-    
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to search stocks');
-    }
-    
-    return await response.json();
-  } catch (error) {
-    console.error('Error searching stocks:', error);
-    throw error;
+  const response = await fetch(`${API_BASE_URL}/stocks/search/?q=${encodeURIComponent(query)}`);
+  if (!response.ok) {
+    throw new Error('Failed to search stocks');
   }
+  return response.json();
 };
 
 export const getStockDetails = async (stockId) => {
-  try {
-    const response = await fetch(`${API_BASE_URL}/stocks/${stockId}/details/`);
-    
-    if (!response.ok) {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to fetch stock details');
-    }
-    
-    return await response.json();
-  } catch (error) {
-    console.error('Error fetching stock details:', error);
-    throw error;
+  const response = await fetch(`${API_BASE_URL}/stocks/${stockId}/details/`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch stock details');
   }
+  return response.json();
+};
+
+export const predictStockPrice = async (stockId) => {
+  const response = await fetch(`${API_BASE_URL}/stocks/${stockId}/predict_price/`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    throw new Error('Failed to predict stock price');
+  }
+  return response.json();
 };

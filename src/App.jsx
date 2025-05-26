@@ -3,7 +3,7 @@ import './App.css';
 import StockSearch from './components/StockSearch';
 import WatchList from './components/WatchList';
 import StockDetails from './components/StockDetails';
-import { getStockDetails } from './api/stocksApi';
+import { getStockDetails, predictStockPrice } from './api/stocksApi';
 
 function App() {
   const [watchlist, setWatchlist] = useState(() => {
@@ -12,6 +12,8 @@ function App() {
   });
   const [selectedStock, setSelectedStock] = useState(null);
   const [refreshTimer, setRefreshTimer] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [toast, setToast] = useState(null);
 
   // Save watchlist to localStorage whenever it changes
   useEffect(() => {
@@ -48,7 +50,13 @@ function App() {
     }
   }, [watchlist]);
 
+  const showToast = (message, type = 'info') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
   const refreshWatchlistData = async () => {
+    setLoading(true);
     const updatedWatchlist = [...watchlist];
     
     for (let i = 0; i < updatedWatchlist.length; i++) {
@@ -56,7 +64,10 @@ function App() {
         const stockData = await getStockDetails(updatedWatchlist[i].id);
         updatedWatchlist[i] = {
           ...updatedWatchlist[i],
-          last_price: stockData.last_price
+          last_price: stockData.last_price,
+          predicted_price: stockData.predicted_price,
+          prediction_date: stockData.prediction_date,
+          model_accuracy: stockData.model_accuracy
         };
         
         // Also update selected stock if it's the one we're refreshing
@@ -65,15 +76,20 @@ function App() {
         }
       } catch (error) {
         console.error(`Failed to refresh ${updatedWatchlist[i].symbol}:`, error);
+        showToast(`Failed to refresh ${updatedWatchlist[i].symbol}`, 'error');
       }
     }
     
     setWatchlist(updatedWatchlist);
+    setLoading(false);
   };
 
   const addToWatchlist = (stock) => {
     if (!watchlist.some(item => item.symbol === stock.symbol)) {
       setWatchlist([...watchlist, stock]);
+      showToast(`${stock.symbol} added to watchlist`, 'success');
+    } else {
+      showToast(`${stock.symbol} is already in your watchlist`, 'info');
     }
   };
 
@@ -82,28 +98,45 @@ function App() {
     if (selectedStock && selectedStock.symbol === symbol) {
       setSelectedStock(null);
     }
+    showToast(`${symbol} removed from watchlist`, 'info');
   };
 
-  const handleStockSelect = (stock) => {
+  const handleStockSelect = async (stock) => {
     setSelectedStock(stock);
+    try {
+      const prediction = await predictStockPrice(stock.id);
+      setSelectedStock(prev => ({
+        ...prev,
+        predicted_price: prediction.predicted_price,
+        prediction_date: prediction.prediction_date,
+        model_accuracy: prediction.model_accuracy
+      }));
+    } catch (error) {
+      console.error('Failed to get prediction:', error);
+      showToast('Failed to get price prediction', 'error');
+    }
   };
 
   return (
     <div className="bg-gray-100 min-h-screen">
       <header className="bg-blue-600 p-4 text-white">
         <div className="container mx-auto flex justify-between items-center">
-          <h1 className="text-2xl font-bold">Stock Watchlist</h1>
-          <button 
-            onClick={refreshWatchlistData}
-            className="bg-blue-700 text-white px-4 py-2 rounded hover:bg-blue-800"
-          >
-            Refresh Data
-          </button>
+          <h1 className="text-2xl font-bold">Stock Stalk</h1>
+          <div className="flex items-center gap-4">
+            {loading && <div className="loading"></div>}
+            <button 
+              onClick={refreshWatchlistData}
+              className="bg-blue-700 text-white px-4 py-2 rounded hover:bg-blue-800"
+              disabled={loading}
+            >
+              Refresh Data
+            </button>
+          </div>
         </div>
       </header>
       
       <main className="container mx-auto p-4">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid">
           <div className="md:col-span-1">
             <div className="bg-white rounded-lg shadow-md p-4 mb-6">
               <StockSearch onAddStock={addToWatchlist} />
@@ -122,16 +155,25 @@ function App() {
           <div className="md:col-span-2">
             <div className="bg-white rounded-lg shadow-md p-4 h-full">
               {selectedStock ? (
-                <StockDetails stock={selectedStock} />
+                <StockDetails 
+                  stock={selectedStock}
+                  onPredictPrice={() => handleStockSelect(selectedStock)}
+                />
               ) : (
                 <div className="flex flex-col items-center justify-center h-64 text-gray-500">
-                  <p>Select a stock to view details</p>
+                  <p>Select a stock to view details and predictions</p>
                 </div>
               )}
             </div>
           </div>
         </div>
       </main>
+
+      {toast && (
+        <div className={`toast ${toast.type}`}>
+          {toast.message}
+        </div>
+      )}
     </div>
   );
 }

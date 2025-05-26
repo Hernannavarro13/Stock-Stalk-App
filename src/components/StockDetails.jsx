@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { getStockDetails } from '../api/stocksApi';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { formatNumber, formatDate, formatPercent } from '../utils/formatters';
 
-function StockDetails({ stock }) {
+const StockDetails = ({ stock, onPredictPrice }) => {
   const [stockData, setStockData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -40,11 +41,11 @@ function StockDetails({ stock }) {
     return <div className="text-center py-12">Select a stock to view details</div>;
   }
 
-  // Format price change as positive or negative
-  const priceChange = stockData.priceChange ? parseFloat(stockData.priceChange).toFixed(2) : '0.00';
-  const percentChange = stockData.percentChange ? (parseFloat(stockData.percentChange) * 100).toFixed(2) : '0.00';
-  const changeColor = priceChange > 0 ? 'text-green-500' : priceChange < 0 ? 'text-red-500' : 'text-gray-500';
-  
+  const priceChange = stockData.priceChange || 0;
+  const isPriceUp = priceChange >= 0;
+  const predictionAge = stockData.prediction_date ? 
+    Math.round((new Date() - new Date(stockData.prediction_date)) / (1000 * 60)) : null;
+
   // Format chart data
   const chartData = stockData.price_history ? stockData.price_history.map(item => ({
     date: item.date,
@@ -52,118 +53,105 @@ function StockDetails({ stock }) {
   })) : [];
   
   return (
-    <div>
-      <div className="flex justify-between items-start mb-6">
+    <div className="space-y-6">
+      <div className="flex justify-between items-start">
         <div>
-          <h2 className="text-2xl font-bold">{stockData.symbol}</h2>
-          <p className="text-lg text-gray-700">{stockData.name}</p>
-          {stockData.sector && (
-            <p className="text-sm text-gray-500">{stockData.sector} • {stockData.industry || 'N/A'}</p>
-          )}
+          <h2 className="text-2xl font-bold">{stockData.name}</h2>
+          <p className="text-gray-600">{stockData.symbol}</p>
         </div>
-        <div className="text-right">
-          <div className="text-2xl font-bold">${parseFloat(stockData.last_price).toFixed(2)}</div>
-          <div className={`${changeColor}`}>
-            {priceChange > 0 ? '+' : ''}{priceChange} ({percentChange}%)
-          </div>
-        </div>
+        <button
+          onClick={onPredictPrice}
+          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+        >
+          Update Prediction
+        </button>
       </div>
-      
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <div className="bg-gray-50 p-3 rounded">
-          <div className="text-sm text-gray-500">Market Cap</div>
-          <div className="font-medium">
-            {stockData.marketCap ? formatLargeNumber(stockData.marketCap) : 'N/A'}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <h3 className="text-lg font-semibold mb-4">Current Price</h3>
+          <div className="space-y-2">
+            <p className="text-3xl font-bold">
+              ${formatNumber(stockData.last_price)}
+              <span className={`ml-2 text-sm ${isPriceUp ? 'stock-up' : 'stock-down'}`}>
+                {isPriceUp ? '↑' : '↓'} {formatPercent(stockData.percentChange)}
+              </span>
+            </p>
+            <p className="text-sm text-gray-600">
+              Day Range: ${formatNumber(stockData.dayLow)} - ${formatNumber(stockData.dayHigh)}
+            </p>
           </div>
         </div>
-        <div className="bg-gray-50 p-3 rounded">
-          <div className="text-sm text-gray-500">P/E Ratio</div>
-          <div className="font-medium">
-            {stockData.peRatio ? parseFloat(stockData.peRatio).toFixed(2) : 'N/A'}
-          </div>
-        </div>
-        <div className="bg-gray-50 p-3 rounded">
-          <div className="text-sm text-gray-500">Day Range</div>
-          <div className="font-medium">
-            {stockData.dayLow && stockData.dayHigh 
-              ? `$${parseFloat(stockData.dayLow).toFixed(2)} - $${parseFloat(stockData.dayHigh).toFixed(2)}` 
-              : 'N/A'}
-          </div>
-        </div>
-        <div className="bg-gray-50 p-3 rounded">
-          <div className="text-sm text-gray-500">52 Week Range</div>
-          <div className="font-medium">
-            {stockData.yearLow && stockData.yearHigh 
-              ? `$${parseFloat(stockData.yearLow).toFixed(2)} - $${parseFloat(stockData.yearHigh).toFixed(2)}` 
-              : 'N/A'}
-          </div>
-        </div>
-        <div className="bg-gray-50 p-3 rounded">
-          <div className="text-sm text-gray-500">Volume</div>
-          <div className="font-medium">
-            {stockData.volume ? stockData.volume.toLocaleString() : 'N/A'}
-          </div>
-        </div>
-        <div className="bg-gray-50 p-3 rounded">
-          <div className="text-sm text-gray-500">Avg. Volume</div>
-          <div className="font-medium">
-            {stockData.avgVolume ? stockData.avgVolume.toLocaleString() : 'N/A'}
-          </div>
-        </div>
-        <div className="bg-gray-50 p-3 rounded">
-          <div className="text-sm text-gray-500">Dividend Yield</div>
-          <div className="font-medium">
-            {stockData.dividendYield 
-              ? `${(parseFloat(stockData.dividendYield) * 100).toFixed(2)}%` 
-              : 'N/A'}
-          </div>
-        </div>
-      </div>
-      
-      <div>
-        <h3 className="text-lg font-semibold mb-2">Price History (30 Days)</h3>
-        <div className="bg-gray-50 p-4 rounded h-64">
-          {chartData.length > 0 ? (
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart
-                data={chartData}
-                margin={{ top: 5, right: 5, left: 5, bottom: 5 }}
-              >
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis 
-                  dataKey="date" 
-                  tickFormatter={(tick) => {
-                    const date = new Date(tick);
-                    return `${date.getMonth()+1}/${date.getDate()}`;
-                  }}
-                />
-                <YAxis 
-                  domain={['auto', 'auto']}
-                  tickFormatter={(tick) => `$${tick}`}
-                />
-                <Tooltip 
-                  formatter={(value) => [`$${value.toFixed(2)}`, 'Price']}
-                  labelFormatter={(label) => new Date(label).toLocaleDateString()}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="price" 
-                  stroke="#3b82f6" 
-                  dot={false} 
-                  strokeWidth={2}
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          ) : (
-            <div className="flex items-center justify-center h-full text-gray-500">
-              No historical data available
+
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <h3 className="text-lg font-semibold mb-4">Price Prediction</h3>
+          {stockData.predicted_price ? (
+            <div className="space-y-2">
+              <p className="text-3xl font-bold">
+                ${formatNumber(stockData.predicted_price)}
+                <span className="text-sm text-gray-600 ml-2">
+                  {predictionAge < 60 ? `${predictionAge}m ago` : 'Needs update'}
+                </span>
+              </p>
+              <p className="text-sm text-gray-600">
+                Model Accuracy: {formatPercent(stockData.model_accuracy)}
+              </p>
             </div>
+          ) : (
+            <p className="text-gray-600">Click "Update Prediction" to generate a price prediction</p>
           )}
         </div>
       </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <h3 className="text-lg font-semibold mb-2">Market Cap</h3>
+          <p className="text-xl">${formatNumber(stockData.marketCap, true)}</p>
+        </div>
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <h3 className="text-lg font-semibold mb-2">P/E Ratio</h3>
+          <p className="text-xl">{stockData.peRatio ? formatNumber(stockData.peRatio) : 'N/A'}</p>
+        </div>
+        <div className="bg-gray-50 p-4 rounded-lg">
+          <h3 className="text-lg font-semibold mb-2">Volume</h3>
+          <p className="text-xl">{formatNumber(stockData.volume)}</p>
+        </div>
+      </div>
+
+      {stockData.price_history && stockData.price_history.length > 0 && (
+        <div className="mt-6">
+          <h3 className="text-lg font-semibold mb-4">Price History</h3>
+          <div className="overflow-x-auto">
+            <table className="min-w-full">
+              <thead>
+                <tr className="bg-gray-50">
+                  <th className="px-4 py-2 text-left">Date</th>
+                  <th className="px-4 py-2 text-right">Open</th>
+                  <th className="px-4 py-2 text-right">High</th>
+                  <th className="px-4 py-2 text-right">Low</th>
+                  <th className="px-4 py-2 text-right">Close</th>
+                  <th className="px-4 py-2 text-right">Volume</th>
+                </tr>
+              </thead>
+              <tbody>
+                {stockData.price_history.map((price) => (
+                  <tr key={price.date} className="border-t">
+                    <td className="px-4 py-2">{formatDate(price.date)}</td>
+                    <td className="px-4 py-2 text-right">${formatNumber(price.open_price)}</td>
+                    <td className="px-4 py-2 text-right">${formatNumber(price.high_price)}</td>
+                    <td className="px-4 py-2 text-right">${formatNumber(price.low_price)}</td>
+                    <td className="px-4 py-2 text-right">${formatNumber(price.close_price)}</td>
+                    <td className="px-4 py-2 text-right">{formatNumber(price.volume)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   );
-}
+};
 
 // Helper function to format large numbers (like market cap)
 function formatLargeNumber(num) {
